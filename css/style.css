@@ -426,6 +426,12 @@ html, body {
   gap: 10px;
 }
 
+.grid-5 {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+
 .choice-card {
   position: relative;
   padding: 10px 11px;
@@ -724,6 +730,12 @@ body.force-touch #minimap-wrap {
   }
   .grid-4 {
     grid-template-columns: repeat(2, 1fr);
+  }
+  .grid-5 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .grid-5 .choice-card:last-child {
+    grid-column: span 2;
   }
   .controls-hint {
     display: none;

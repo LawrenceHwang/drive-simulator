@@ -59,6 +59,7 @@
       ghostPose: null,
       ghostRec: [],
       ghostRecTimer: 0,
+      highway: null,
       cam: {
         x: track.startPt.x,
         y: track.startPt.y,
@@ -155,7 +156,394 @@
     sim.cam.shake = 0;
   }
 
+  function initHighway(sim) {
+    const startId = sim.track.def.id;
+    const allIds = G.TRACK_DEFS.map(t => t.id);
+    const startIdx = Math.max(0, allIds.indexOf(startId));
+    const biomeOrder = [];
+    for (let i = 0; i < allIds.length; i++) {
+      biomeOrder.push(G.TRACK_DEFS[(startIdx + i) % allIds.length]);
+    }
+
+    const hw = {
+      roadW: 198,
+      laneYs: [-66, 0, 66],
+      biomeOrder,
+      biomePos: 0,
+      biome: biomeOrder[0],
+      distanceKm: 0,
+      bestKm: sim.store.bestHighwayKm || 0,
+      nextSaveKm: (sim.store.bestHighwayKm || 0) + 0.25,
+      nextChunkX: -600,
+      nextSignX: 2500,
+      nextLampX: -400,
+      props: [],
+      patches: [],
+      ponds: [],
+      lamps: [],
+      signs: [],
+      rand: G.mulberry32(sim.track.def.seed + 555),
+    };
+    sim.highway = hw;
+
+    // Pre-populate scenery ahead
+    streamHighwayScenery(sim, 0);
+
+    // Spawn 5 chill highway cruisers primarily in middle & right lanes so the fast lane stays invitingly open
+    sim.traffic.length = 0;
+    for (let i = 0; i < 5; i++) {
+      const type = TRAFFIC_TYPES[i % TRAFFIC_TYPES.length];
+      const color = type.colors[Math.floor(hw.rand() * type.colors.length)];
+      const laneIdx = (i % 2 === 0) ? 2 : 1;
+      const spd = (240 + hw.rand() * 140) * type.speedMul;
+      sim.traffic.push({
+        x: 680 + i * 680 + hw.rand() * 220,
+        y: hw.laneYs[laneIdx],
+        laneIdx,
+        angle: 0,
+        speed: spd,
+        baseSpeed: spd,
+        kind: type.kind,
+        len: type.len,
+        wid: type.wid,
+        color,
+        nearMissCd: 0,
+      });
+    }
+  }
+
+  function streamHighwayScenery(sim, carX) {
+    const hw = sim.highway;
+    const rand = hw.rand;
+    const halfW = hw.roadW / 2;
+    const bId = hw.biome.id;
+
+    // Stream ground patches & props ahead of car
+    while (hw.nextChunkX < carX + 2100) {
+      const cx = hw.nextChunkX;
+      hw.nextChunkX += 160;
+
+      // Ground patches on both sides
+      for (let s = -1; s <= 1; s += 2) {
+        if (rand() < 0.72) {
+          hw.patches.push({
+            x: cx + rand() * 150,
+            y: s * (halfW + 120 + rand() * 480),
+            rx: 65 + rand() * 140,
+            ry: 38 + rand() * 85,
+            a: rand() * Math.PI,
+            dark: rand() > 0.48,
+          });
+        }
+      }
+
+      // Occasional scenic pond in Emerald biome
+      if (bId === 'emerald' && rand() < 0.08) {
+        const side = rand() > 0.5 ? 1 : -1;
+        hw.ponds.push({
+          x: cx + 80,
+          y: side * (halfW + 250 + rand() * 180),
+          rx: 120 + rand() * 65,
+          ry: 65 + rand() * 35,
+          a: (rand() - 0.5) * 0.35,
+        });
+      }
+
+      // Roadside scenery props on both sides of the highway
+      const countPerSide = bId === 'neon' ? 2 : 3;
+      for (let s = -1; s <= 1; s += 2) {
+        for (let k = 0; k < countPerSide; k++) {
+          const px = cx + rand() * 155;
+          const minOff = bId === 'neon' ? halfW + 96 : halfW + 64;
+          const py = s * (minOff + rand() * 470);
+
+          if (bId === 'neon') {
+            hw.props.push({
+              type: 'building',
+              x: px, y: py,
+              w: 62 + rand() * 95,
+              h: 58 + rand() * 90,
+              hue: rand() > 0.5 ? '#06b6d4' : '#e879f9',
+            });
+          } else if (bId === 'canyon') {
+            const roll = rand();
+            if (roll < 0.24) hw.props.push({ type: 'mesa', x: px, y: py, r: 30 + rand() * 40 });
+            else if (roll < 0.74) hw.props.push({ type: 'cactus', x: px, y: py, r: 8 + rand() * 7 });
+            else hw.props.push({ type: 'rock', x: px, y: py, r: 7 + rand() * 11 });
+          } else if (bId === 'alpine') {
+            if (rand() < 0.82) hw.props.push({ type: 'pine', x: px, y: py, r: 15 + rand() * 16 });
+            else hw.props.push({ type: 'rock', x: px, y: py, r: 8 + rand() * 12 });
+          } else {
+            if (rand() < 0.84) hw.props.push({ type: 'tree', x: px, y: py, r: 15 + rand() * 16, shade: rand() });
+            else hw.props.push({ type: 'rock', x: px, y: py, r: 5 + rand() * 8 });
+          }
+        }
+      }
+    }
+
+    // Streetlamps along highway
+    while (hw.nextLampX < carX + 2100) {
+      const lx = hw.nextLampX;
+      hw.nextLampX += 280;
+      if (hw.biome.theme.night) {
+        hw.lamps.push({ x: lx, y: -(halfW + 24) });
+        hw.lamps.push({ x: lx + 140, y: halfW + 24 });
+      }
+    }
+
+    // Overhead scenic highway gantry signs every 0.5 km (2500 px)
+    while (hw.nextSignX < carX + 2200) {
+      const sx = hw.nextSignX;
+      const km = (sx / 5000).toFixed(1);
+      hw.signs.push({ x: sx, label: hw.biome.name.toUpperCase() + '  •  ' + km + ' KM' });
+      hw.nextSignX += 2500;
+    }
+
+    // Prune anything far behind car
+    const cutoff = carX - 1000;
+    while (hw.props.length && hw.props[0].x < cutoff) hw.props.shift();
+    while (hw.patches.length && hw.patches[0].x < cutoff) hw.patches.shift();
+    while (hw.ponds.length && hw.ponds[0].x < cutoff) hw.ponds.shift();
+    while (hw.lamps.length && hw.lamps[0].x < cutoff) hw.lamps.shift();
+    while (hw.signs.length && hw.signs[0].x < cutoff) hw.signs.shift();
+  }
+
+  function stepHighway(sim, input, dt) {
+    const r = sim.race;
+    const c = sim.car;
+    const hw = sim.highway;
+    const phys = sim.carDef.phys;
+    const halfW = hw.roadW / 2;
+
+    r.raceTime += dt;
+
+    // Biome progression every 2.5 km
+    hw.distanceKm = Math.max(0, c.x / 5000);
+    const targetBiomePos = Math.floor(hw.distanceKm / 2.5) % hw.biomeOrder.length;
+    if (targetBiomePos !== hw.biomePos) {
+      hw.biomePos = targetBiomePos;
+      hw.biome = hw.biomeOrder[hw.biomePos];
+      showBanner(sim, hw.biome.name.toUpperCase(), hw.distanceKm.toFixed(1) + ' KM • SCENIC HIGHWAY', 2.0);
+    }
+
+    // Persist highway distance record
+    if (hw.distanceKm > hw.bestKm) {
+      hw.bestKm = hw.distanceKm;
+      if (hw.distanceKm >= hw.nextSaveKm) {
+        hw.nextSaveKm = hw.distanceKm + 0.25;
+        sim.store.bestHighwayKm = Math.round(hw.bestKm * 100) / 100;
+        G.saveStore(sim.store);
+      }
+    }
+
+    const onOffroad = Math.abs(c.y) > halfW - 2;
+    c.onOffroad = onOffroad;
+    c.onIce = false;
+
+    const speedAbs = Math.hypot(c.vx, c.vy);
+    // Highway cruise has a slightly higher exhilarating top speed
+    const hMax = phys.maxSpeed * 1.12;
+    const maxSpd = hMax * (c.boosting ? 1.28 : 1.0);
+    const speedT = Math.min(speedAbs / hMax, 1.2);
+
+    // Boost logic (recharges generously on highway so you can enjoy bursts of speed)
+    const wantsBoost = !!input.boost && c.boost > 2 && input.up;
+    c.boosting = wantsBoost;
+    if (c.boosting) {
+      c.boost = Math.max(0, c.boost - 28 * dt);
+      sim.cam.shake = Math.max(sim.cam.shake, 0.12);
+    } else {
+      c.boost = Math.min(100, c.boost + 6.5 * dt);
+    }
+
+    // Smooth throttle & brake
+    const throttleTarget = input.up ? 1 : 0;
+    const brakeTarget = input.down ? 1 : 0;
+    c.throttle += (throttleTarget - c.throttle) * Math.min(1, (input.up ? 6.0 : 5.0) * dt);
+    c.brake += (brakeTarget - c.brake) * Math.min(1, 10 * dt);
+
+    // Relaxed, gentle lane-change steering
+    const steerInput = (input.left ? -1 : 0) + (input.right ? 1 : 0);
+    const steerLimit = 0.42 - Math.min(speedT, 1) * 0.18;
+    const targetSteer = steerInput * steerLimit;
+    const steerRate = steerInput === 0 ? 12 : 7;
+    c.steer += (targetSteer - c.steer) * Math.min(1, steerRate * dt);
+
+    // Decompose onto old basis
+    const fx = Math.cos(c.angle), fy = Math.sin(c.angle);
+    const rx = -fy, ry = fx;
+    let vf = c.vx * fx + c.vy * fy;
+    let vl = c.vx * rx + c.vy * ry;
+
+    const boostAccelMul = c.boosting ? 1.55 : 1.0;
+    const throttleForce = phys.accel * boostAccelMul * (1 - 0.44 * Math.min(speedT, 1));
+    vf += c.throttle * throttleForce * dt;
+
+    if (c.brake > 0.02) {
+      vf = Math.max(0, vf - phys.brake * c.brake * dt);
+    }
+
+    // Light aerodynamic drag (glides nicely when coasting!)
+    vf -= vf * 0.16 * dt;
+    if (onOffroad) vf -= vf * 0.85 * dt;
+    vf = Math.max(0, Math.min(maxSpd, vf));
+
+    // Steering yaw + gentle auto-straightening when hands off steering
+    const yawSpeed = Math.min(520, vf);
+    c.angle += c.steer * yawSpeed * 0.0052 * dt;
+    if (steerInput === 0) {
+      c.angle *= Math.exp(-4.5 * dt);
+    }
+    c.angle = Math.max(-0.62, Math.min(0.62, c.angle));
+
+    // Recompose & apply smooth highway grip
+    const tmpVx = fx * vf + rx * vl;
+    const tmpVy = fy * vf + ry * vl;
+    const nfx = Math.cos(c.angle), nfy = Math.sin(c.angle);
+    const nrx = -nfy, nry = nfx;
+    const nvf = tmpVx * nfx + tmpVy * nfy;
+    let nvl = tmpVx * nrx + tmpVy * nry;
+    nvl *= Math.exp(-12.0 * dt);
+
+    c.vx = nfx * nvf + nrx * nvl;
+    c.vy = nfy * nvf + nry * nvl;
+    c.vf = nvf;
+    c.vl = nvl;
+    c.drifting = false;
+    c.handbrake = !!input.handbrake;
+
+    c.x += c.vx * dt;
+    c.y += c.vy * dt;
+
+    // Soft guardrails at highway shoulders (never get stuck off-road)
+    const maxY = halfW + 20;
+    if (c.y < -maxY) {
+      c.y = -maxY;
+      if (c.vy < 0) c.vy = -c.vy * 0.25;
+      if (c.angle < 0) c.angle *= 0.6;
+    } else if (c.y > maxY) {
+      c.y = maxY;
+      if (c.vy > 0) c.vy = -c.vy * 0.25;
+      if (c.angle > 0) c.angle *= 0.6;
+    }
+
+    // 6-speed virtual transmission
+    const newSpeed = Math.hypot(c.vx, c.vy);
+    const normSpd = Math.min(newSpeed / hMax, 1.15);
+    const g = Math.min(6, Math.max(1, Math.floor(normSpd * 5.6) + 1));
+    c.gear = String(g);
+    c.gearNum = g;
+    const gearLow = (g - 1) / 5.6;
+    const gearHigh = g / 5.6;
+    const inGear = (normSpd - gearLow) / (gearHigh - gearLow);
+    c.rpm = Math.max(0.16, Math.min(1.0, 0.24 + inGear * 0.74));
+
+    // Boost flame particles
+    if (c.boosting) {
+      addParticle(sim, {
+        x: c.x - nfx * 23 + (Math.random() - 0.5) * 5,
+        y: c.y - nfy * 23 + (Math.random() - 0.5) * 5,
+        vx: -nfx * 260 + (Math.random() - 0.5) * 40,
+        vy: -nfy * 260 + (Math.random() - 0.5) * 40,
+        life: 0.14 + Math.random() * 0.1,
+        maxLife: 0.24,
+        size: 4 + Math.random() * 4,
+        color: Math.random() > 0.4 ? 'rgba(56,189,248,' : 'rgba(251,146,60,',
+      });
+    }
+
+    // Update particles
+    for (let i = sim.particles.length - 1; i >= 0; i--) {
+      const p = sim.particles[i];
+      p.life -= dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vx *= 0.96;
+      p.vy *= 0.96;
+      if (p.life <= 0) sim.particles.splice(i, 1);
+    }
+
+    // Update & recycle highway traffic
+    for (let i = 0; i < sim.traffic.length; i++) {
+      const t = sim.traffic[i];
+      if (t.nearMissCd > 0) t.nearMissCd -= dt;
+      t.x += t.speed * dt;
+
+      // Recycle passed traffic well ahead of player
+      if (t.x < c.x - 520) {
+        let maxX = c.x + 1500;
+        for (let j = 0; j < sim.traffic.length; j++) {
+          if (sim.traffic[j].x > maxX) maxX = sim.traffic[j].x;
+        }
+        const rLane = hw.rand();
+        const laneIdx = rLane < 0.15 ? 0 : (rLane < 0.58 ? 1 : 2);
+        const type = TRAFFIC_TYPES[Math.floor(hw.rand() * TRAFFIC_TYPES.length)];
+        t.x = maxX + 540 + hw.rand() * 380;
+        t.y = hw.laneYs[laneIdx];
+        t.laneIdx = laneIdx;
+        t.kind = type.kind;
+        t.len = type.len;
+        t.wid = type.wid;
+        t.color = type.colors[Math.floor(hw.rand() * type.colors.length)];
+        t.speed = (240 + hw.rand() * 140) * type.speedMul;
+        t.nearMissCd = 0;
+      }
+
+      // Collision & Near-Miss
+      const dx = c.x - t.x, dy = c.y - t.y;
+      const d = Math.hypot(dx, dy);
+      const minD = c.radius + t.wid * 0.68;
+      if (d < minD && d > 0.001) {
+        const nx = dx / d, ny = dy / d;
+        c.x = t.x + nx * minD;
+        c.y = t.y + ny * minD;
+        const rel = c.vx * nx + c.vy * ny;
+        if (rel < 0) {
+          c.vx -= nx * rel * 1.1;
+          c.vy -= ny * rel * 1.1;
+          c.vx *= 0.85;
+          const impact = Math.min(1, Math.abs(rel) / 500);
+          sim.cam.shake = Math.max(sim.cam.shake, 0.22 + impact * 0.35);
+          if (G.Audio) G.Audio.playCollision(impact);
+        }
+        t.nearMissCd = 2.0;
+      } else if (d < minD + 34 && newSpeed > 450 && t.nearMissCd <= 0) {
+        t.nearMissCd = 2.5;
+        r.nearMisses++;
+        c.boost = Math.min(100, c.boost + 20);
+        addPopup(sim, c.x, c.y - 26, 'NEAR MISS! +20 BOOST', '#38bdf8');
+        if (G.Audio) G.Audio.playNearMiss();
+      }
+    }
+
+    // Stream upcoming scenery
+    streamHighwayScenery(sim, c.x);
+
+    // Update Audio
+    if (G.Audio) {
+      G.Audio.updateEngine(
+        true,
+        Math.min(1, newSpeed / hMax),
+        c.rpm,
+        c.gearNum,
+        c.throttle,
+        0,
+        onOffroad,
+        c.boosting
+      );
+    }
+  }
+
   function resetToTrack(sim) {
+    if (sim.modeId === 'highway' && sim.highway) {
+      const c = sim.car;
+      c.y = 0;
+      c.angle = 0;
+      c.vy = 0;
+      c.steer = 0;
+      addPopup(sim, c.x, c.y - 24, 'CENTERED', '#93c5fd');
+      return;
+    }
     const tr = sim.track;
     const { idx } = tr.nearestIdx(sim.car.x, sim.car.y, sim.race.nearestIdx);
     const pt = tr.points[idx];
@@ -203,10 +591,23 @@
     r.driftTimeLeft = DRIFT_DURATION;
     r.nearMisses = 0;
 
-    if (sim.modeId === 'cruise') {
+    if (sim.modeId === 'highway') {
+      initHighway(sim);
+      const c = sim.car;
+      c.x = 0; c.y = 0; c.angle = 0;
+      c.vx = 0; c.vy = 0; c.vf = 0; c.vl = 0;
+      c.boost = 80;
+      sim.cam.x = 120; sim.cam.y = 0;
+      sim.cam.vx = 0; sim.cam.vy = 0;
+      r.state = 'racing';
+      const hint = (G.Audio && !G.Audio.isRadioOn()) ? 'Hold Gas & Relax  •  Press N for Synth Radio' : 'Hold Gas & Enjoy the Scenic Drive';
+      showBanner(sim, 'HIGHWAY CRUISE', hint, 2.4);
+    } else if (sim.modeId === 'cruise') {
+      sim.highway = null;
       r.state = 'racing';
       showBanner(sim, 'FREE CRUISE', 'Enjoy the drive', 1.4);
     } else {
+      sim.highway = null;
       r.state = 'countdown';
       r.countdown = 3.0;
       r.lastCount = 4;
@@ -307,8 +708,8 @@
     const tr = sim.track;
     const c = sim.car;
 
-    // Always animate traffic except when paused or finished
-    if (r.state !== 'paused' && r.state !== 'finish') {
+    // Always animate circuit traffic except when paused, finished, or in highway mode
+    if (r.state !== 'paused' && r.state !== 'finish' && !(sim.modeId === 'highway' && sim.highway)) {
       updateTraffic(sim, dt);
     }
 
@@ -329,6 +730,12 @@
       p.life -= dt;
       p.y -= 28 * dt;
       if (p.life <= 0) sim.popups.splice(i, 1);
+    }
+
+    // Highway Cruise mode has its own streamlined endless physics
+    if (sim.modeId === 'highway' && sim.highway && r.state === 'racing') {
+      stepHighway(sim, input, dt);
+      return;
     }
 
     // Countdown phase

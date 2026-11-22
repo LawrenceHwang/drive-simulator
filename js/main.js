@@ -422,7 +422,15 @@
     }
 
     // Left Telemetry Panel
-    if (sim.modeId === 'drift') {
+    if (sim.modeId === 'highway' && sim.highway) {
+      const hw = sim.highway;
+      hudLeft.innerHTML = `
+        <div class="hud-row"><span class="hud-label">Distance</span><span class="hud-val big mono">${hw.distanceKm.toFixed(2)} km</span></div>
+        <div class="hud-row"><span class="hud-label">Region</span><span class="hud-val">${hw.biome.name}</span></div>
+        <div class="hud-row"><span class="hud-label">Near Miss</span><span class="hud-val mono">${r.nearMisses}</span></div>
+        <div class="hud-row"><span class="hud-label">Best</span><span class="hud-val mono">${hw.bestKm.toFixed(2)} km</span></div>
+      `;
+    } else if (sim.modeId === 'drift') {
       const m = Math.floor(r.driftTimeLeft / 60);
       const s = Math.floor(r.driftTimeLeft % 60);
       const tStr = m + ':' + String(s).padStart(2, '0');

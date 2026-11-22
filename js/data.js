@@ -120,7 +120,12 @@
     {
       id: 'cruise',
       name: 'Free Cruise',
-      desc: 'Chill endless driving'
+      desc: 'Chill circuit driving'
+    },
+    {
+      id: 'highway',
+      name: 'Highway Cruise',
+      desc: 'Endless straight scenic drive'
     }
   ];
 
@@ -627,6 +632,7 @@
     bestLaps: {},   // trackId -> { time, carId }
     ghosts: {},     // trackId -> flat array [t, x, y, a, ...]
     bestDrift: {},  // trackId -> number
+    bestHighwayKm: 0,
   };
 
   function loadStore() {
@@ -639,6 +645,7 @@
         bestLaps: parsed.bestLaps || {},
         ghosts: parsed.ghosts || {},
         bestDrift: parsed.bestDrift || {},
+        bestHighwayKm: parsed.bestHighwayKm || 0,
       };
     } catch (e) {
       return JSON.parse(JSON.stringify(defaultStore));

@@ -6,11 +6,12 @@ A fast, zero-dependency, offline-ready top-down arcade driving simulator built w
 
 - **4 Circuits**: *Emerald Circuit*, *Sunset Canyon*, *Midnight Neon* (rain + headlights), and *Alpine Pass* (snow + ice patches)
 - **4 Cars**: *Apex GT*, *Drift King*, *Veloce F1*, and *Baja Rally* — each with distinct visuals and handling
-- **4 Game Modes**:
+- **5 Game Modes**:
   - **Time Trial** — Beat Bronze/Silver/Gold medals and race your saved Personal Best Ghost
   - **Traffic Race** — Weave through multi-class AI traffic for Near-Miss boost bonuses
   - **Drift Attack** — 2-minute combo multiplier run with S/A/B/C grading
-  - **Free Cruise** — Relaxed endless driving
+  - **Free Cruise** — Relaxed endless circuit driving
+  - **Highway Cruise** — Endless straight 3-lane scenic expressway with auto-straightening, biome transitions every 2.5 km, and chill highway traffic
 - **100% Offline Audio**: Procedural 6-gear engine synth, tire screech, off-road rumble, collision/lap SFX, and a toggleable **Chill Synth Bus Radio**
 - **PWA Offline Caching**: Visit once on GitHub Pages (or Add to Home Screen) and play completely offline via the built-in Service Worker
 
