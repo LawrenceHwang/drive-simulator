@@ -240,14 +240,14 @@
       const bId = bDef.id;
       const bTh = bDef.theme;
 
-      // Ground patches on both sides
+      // Ground patches on both sides (wide enough for widescreen monitors in vertical highway view)
       for (let s = -1; s <= 1; s += 2) {
-        if (rand() < 0.72) {
+        if (rand() < 0.8) {
           hw.patches.push({
             x: cx + rand() * 150,
-            y: s * (halfW + 120 + rand() * 480),
-            rx: 65 + rand() * 140,
-            ry: 38 + rand() * 85,
+            y: s * (halfW + 110 + rand() * 640),
+            rx: 70 + rand() * 150,
+            ry: 42 + rand() * 90,
             a: rand() * Math.PI,
             color: rand() > 0.48 ? bTh.patchDark : bTh.patchLight,
           });
@@ -255,11 +255,11 @@
       }
 
       // Occasional scenic pond in Emerald biome
-      if (bId === 'emerald' && rand() < 0.08) {
+      if (bId === 'emerald' && rand() < 0.09) {
         const side = rand() > 0.5 ? 1 : -1;
         hw.ponds.push({
           x: cx + 80,
-          y: side * (halfW + 250 + rand() * 180),
+          y: side * (halfW + 240 + rand() * 340),
           rx: 120 + rand() * 65,
           ry: 65 + rand() * 35,
           a: (rand() - 0.5) * 0.35,
@@ -267,12 +267,12 @@
       }
 
       // Roadside scenery props on both sides of the highway
-      const countPerSide = bId === 'neon' ? 2 : 3;
+      const countPerSide = bId === 'neon' ? 3 : 4;
       for (let s = -1; s <= 1; s += 2) {
         for (let k = 0; k < countPerSide; k++) {
           const px = cx + rand() * 155;
           const minOff = bId === 'neon' ? halfW + 96 : halfW + 64;
-          const py = s * (minOff + rand() * 470);
+          const py = s * (minOff + rand() * 640);
 
           if (bId === 'neon') {
             hw.props.push({

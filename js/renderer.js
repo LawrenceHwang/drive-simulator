@@ -435,18 +435,18 @@
     const speedNorm = Math.min(speedAbs / (sim.carDef.phys.maxSpeed * 1.12), 1.2);
     dt = Math.min(dt, 0.08) || 1 / 60;
 
-    // Smooth cinematic highway camera: look nicely ahead along +x, gentle y follow
-    const lookX = 120 + speedAbs * (camMode === 'tight' ? 0.14 : 0.24);
+    // Smooth cinematic vertical highway camera: car sits in lower third, wide view ahead (UP)
+    const lookX = 95 + speedAbs * (camMode === 'tight' ? 0.11 : 0.18);
     const targetX = c.x + lookX;
-    const targetY = c.y * 0.45;
+    const targetY = c.y * 0.38;
     const stiff = 24, damp = 2 * Math.sqrt(stiff);
     cam.vx += ((targetX - cam.x) * stiff - cam.vx * damp) * dt;
     cam.vy += ((targetY - cam.y) * stiff - cam.vy * damp) * dt;
     cam.x += cam.vx * dt;
     cam.y += cam.vy * dt;
 
-    const baseScale = camMode === 'tight' ? 1.48 : 1.32;
-    const targetScale = baseScale - Math.min(speedNorm, 1) * 0.36 - (c.boosting ? 0.06 : 0);
+    const baseScale = camMode === 'tight' ? 1.44 : 1.26;
+    const targetScale = baseScale - Math.min(speedNorm, 1) * 0.32 - (c.boosting ? 0.05 : 0);
     cam.scale += (targetScale - cam.scale) * Math.min(1, 3.2 * dt);
 
     const scale = cam.scale;
@@ -460,13 +460,17 @@
     ctx.save();
     ctx.translate(W / 2 + shakeX, H / 2 + shakeY);
     ctx.scale(scale, scale);
+    // Rotate -90 deg so world +x (forward) points straight UP and +y points RIGHT
+    ctx.rotate(-Math.PI / 2);
     ctx.translate(-cam.x, -cam.y);
 
-    const vw = W / scale, vh = H / scale;
-    const viewL = cam.x - vw / 2 - 140;
-    const viewR = cam.x + vw / 2 + 140;
-    const viewT = cam.y - vh / 2 - 140;
-    const viewB = cam.y + vh / 2 + 140;
+    // Visible world bounds (rotated: screen H maps to world x, screen W maps to world y)
+    const halfFwd = (H / scale) / 2 + 160;
+    const halfLat = (W / scale) / 2 + 160;
+    const viewL = cam.x - halfFwd;
+    const viewR = cam.x + halfFwd;
+    const viewT = cam.y - halfLat;
+    const viewB = cam.y + halfLat;
 
     // Infinite tiled ground pattern with smooth crossfade into next biome
     ctx.fillStyle = getGroundPattern(ctx, bDef);
@@ -597,14 +601,14 @@
       night: nightAmt,
     });
 
-    // Overhead highway milestone gantries
+    // Overhead highway milestone gantries (text oriented horizontally upright on screen)
     ctx.font = '800 10px "SF Mono", ui-monospace, Menlo, Consolas, monospace';
     ctx.textAlign = 'center';
     for (let i = 0; i < hw.signs.length; i++) {
       const sg = hw.signs[i];
       if (sg.x + 40 < viewL || sg.x - 40 > viewR) continue;
       ctx.fillStyle = 'rgba(0,0,0,0.28)';
-      ctx.fillRect(sg.x - 4, -(halfW + 18), 14, hw.roadW + 36);
+      ctx.fillRect(sg.x - 10, -(halfW + 18), 14, hw.roadW + 36);
       ctx.fillStyle = '#1e293b';
       ctx.fillRect(sg.x - 6, -(halfW + 20), 12, hw.roadW + 40);
       ctx.fillStyle = '#065f46';
@@ -614,23 +618,27 @@
       ctx.strokeRect(sg.x - 10, -82, 20, 164);
       ctx.save();
       ctx.translate(sg.x, 0);
-      ctx.rotate(-Math.PI / 2);
+      ctx.rotate(Math.PI / 2);
       ctx.fillStyle = '#f8fafc';
       ctx.fillText(sg.label, 0, 3.5);
       ctx.restore();
     }
 
-    // Popups
+    // Popups (rotated upright so text reads horizontally on screen)
     ctx.font = '800 13px "SF Mono", ui-monospace, Menlo, Consolas, monospace';
     ctx.textAlign = 'center';
     for (let i = 0; i < sim.popups.length; i++) {
       const p = sim.popups[i];
       const alpha = Math.min(1, (p.life / p.maxLife) * 1.6);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(Math.PI / 2);
       ctx.globalAlpha = alpha;
       ctx.fillStyle = 'rgba(0,0,0,0.65)';
-      ctx.fillText(p.text, p.x + 1.5, p.y + 1.5);
+      ctx.fillText(p.text, 1.5, 1.5);
       ctx.fillStyle = p.color;
-      ctx.fillText(p.text, p.x, p.y);
+      ctx.fillText(p.text, 0, 0);
+      ctx.restore();
     }
     ctx.globalAlpha = 1;
 
@@ -661,7 +669,7 @@
       }
     }
 
-    // Speed lines
+    // Vertical speed lines rushing downward along left & right edges
     if (speedNorm > 0.52 || c.boosting) {
       const intensity = c.boosting ? 0.95 : Math.min(1, (speedNorm - 0.52) / 0.48);
       const count = Math.floor(15 * intensity);
@@ -669,15 +677,15 @@
         ? 'rgba(56,189,248,' + (0.24 * intensity) + ')'
         : 'rgba(255,255,255,' + (0.16 * intensity) + ')';
       ctx.lineWidth = c.boosting ? 2.4 : 1.8;
-      const cy = H / 2;
+      const cx = W / 2;
       for (let i = 0; i < count; i++) {
-        const sy = Math.random() * H;
-        if (Math.abs(sy - cy) < H * 0.18) continue;
         const sx = Math.random() * W;
+        if (Math.abs(sx - cx) < W * 0.16) continue;
+        const sy = Math.random() * H;
         const len = 55 + Math.random() * 140 * intensity;
         ctx.beginPath();
         ctx.moveTo(sx, sy);
-        ctx.lineTo(sx - len, sy);
+        ctx.lineTo(sx, sy + len);
         ctx.stroke();
       }
     }
@@ -690,7 +698,7 @@
     ctx.fillStyle = vgrad;
     ctx.fillRect(0, 0, W, H);
 
-    // Highway Radar Minimap
+    // Vertical Highway Radar Minimap
     if (mctx) drawHighwayRadar(mctx, sim, lerpColor(thA.minimapBg, thB.minimapBg, blend), asphaltCol);
   }
 
@@ -702,44 +710,44 @@
     mctx.fillStyle = bgCol;
     mctx.fillRect(0, 0, mw, mh);
 
-    // Draw horizontal 3-lane highway strip
-    const stripH = 54;
-    const sy = (mh - stripH) / 2;
+    // Draw vertical 3-lane highway strip centered in radar
+    const stripW = 66;
+    const sx = (mw - stripW) / 2;
     mctx.fillStyle = asphaltCol;
-    mctx.fillRect(0, sy, mw, stripH);
+    mctx.fillRect(sx, 0, stripW, mh);
     mctx.strokeStyle = 'rgba(255,255,255,0.28)';
     mctx.lineWidth = 1;
     mctx.setLineDash([6, 6]);
     mctx.beginPath();
-    mctx.moveTo(0, sy + stripH / 3);
-    mctx.lineTo(mw, sy + stripH / 3);
-    mctx.moveTo(0, sy + (stripH * 2) / 3);
-    mctx.lineTo(mw, sy + (stripH * 2) / 3);
+    mctx.moveTo(sx + stripW / 3, 0);
+    mctx.lineTo(sx + stripW / 3, mh);
+    mctx.moveTo(sx + (stripW * 2) / 3, 0);
+    mctx.lineTo(sx + (stripW * 2) / 3, mh);
     mctx.stroke();
     mctx.setLineDash([]);
 
-    // Traffic blips relative to player (player sits at x = 28% from left)
-    const px = mw * 0.25;
-    const rangeX = 1900; // px ahead shown on radar
+    // Traffic blips relative to player (player sits near bottom at y = 78%, driving UP)
+    const py = mh * 0.78;
+    const rangeX = 1900; // world px ahead shown on radar
     for (let i = 0; i < sim.traffic.length; i++) {
       const t = sim.traffic[i];
-      const rx = px + ((t.x - sim.car.x) / rangeX) * (mw * 0.75);
-      if (rx < -8 || rx > mw + 8) continue;
-      const ry = mh / 2 + (t.y / hw.roadW) * stripH;
+      const ry = py - ((t.x - sim.car.x) / rangeX) * (mh * 0.78);
+      if (ry < -8 || ry > mh + 8) continue;
+      const rx = mw / 2 + (t.y / hw.roadW) * stripW;
       mctx.fillStyle = t.color;
-      mctx.fillRect(rx - 4, ry - 2.5, 8, 5);
+      mctx.fillRect(rx - 2.5, ry - 4, 5, 8);
     }
 
-    // Player marker
-    const py = mh / 2 + (sim.car.y / hw.roadW) * stripH;
+    // Player upward chevron
+    const px = mw / 2 + (sim.car.y / hw.roadW) * stripW;
     mctx.fillStyle = sim.carDef.color;
     mctx.strokeStyle = '#ffffff';
     mctx.lineWidth = 1.4;
     mctx.beginPath();
-    mctx.moveTo(px + 6, py);
-    mctx.lineTo(px - 4, py - 4);
-    mctx.lineTo(px - 2, py);
+    mctx.moveTo(px, py - 6);
     mctx.lineTo(px - 4, py + 4);
+    mctx.lineTo(px, py + 2);
+    mctx.lineTo(px + 4, py + 4);
     mctx.closePath();
     mctx.fill();
     mctx.stroke();
@@ -747,7 +755,7 @@
     // Label
     mctx.fillStyle = 'rgba(248,250,252,0.65)';
     mctx.font = '700 9px "SF Mono", ui-monospace, monospace';
-    mctx.fillText('HIGHWAY RADAR', 8, 14);
+    mctx.fillText('RADAR', 8, 14);
   }
 
   function render(ctx, mctx, sim, W, H, DPR, dt, camMode) {
