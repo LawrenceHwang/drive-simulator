@@ -344,7 +344,6 @@
     if (segIdx !== hw.biomeSeg) {
       hw.biomeSeg = segIdx;
       hw.biome = getHighwayBiome(hw, segIdx);
-      showBanner(sim, hw.biome.name.toUpperCase(), hw.distanceKm.toFixed(1) + ' KM • SCENIC HIGHWAY', 2.0);
     }
     hw.nextBiome = getHighwayBiome(hw, segIdx + 1);
 
