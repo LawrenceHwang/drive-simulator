@@ -39,18 +39,21 @@
   const btnCam = document.getElementById('btn-cam');
   const btnReset = document.getElementById('btn-reset');
 
-  // Canvas resize
+  // Canvas resize (handles desktop, mobile rotation, and dynamic iOS/Android address bars)
   let W = 0, H = 0, DPR = 1;
   function resize() {
     DPR = Math.min(window.devicePixelRatio || 1, 2);
-    W = window.innerWidth;
-    H = window.innerHeight;
+    const vv = window.visualViewport;
+    W = Math.round(vv ? vv.width : window.innerWidth);
+    H = Math.round(vv ? vv.height : window.innerHeight);
     canvas.width = Math.floor(W * DPR);
     canvas.height = Math.floor(H * DPR);
     canvas.style.width = W + 'px';
     canvas.style.height = H + 'px';
   }
   window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', () => setTimeout(resize, 80));
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
   resize();
 
   // State & Store
@@ -77,9 +80,38 @@
     sim = G.Physics.createSim(tr, car, store.prefs.modeId, store);
   }
 
-  // Apply saved audio & touch prefs
+  // ---------- Auto Mobile / Touch Detection ----------
+  function detectMobileOrTouch() {
+    const coarse = window.matchMedia && (
+      window.matchMedia('(pointer: coarse)').matches ||
+      window.matchMedia('(hover: none)').matches
+    );
+    const uaMobile = /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(navigator.userAgent || '');
+    const touchCapable = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0 && (uaMobile || window.innerWidth <= 1024));
+    return !!(coarse || uaMobile || touchCapable);
+  }
+
+  let isAutoTouch = detectMobileOrTouch();
+  function applyTouchMode() {
+    // store.prefs.touchMode: 'auto' | 'on' | 'off' (back-compat with forceTouch boolean)
+    const mode = store.prefs.touchMode || (store.prefs.forceTouch ? 'on' : 'auto');
+    document.body.classList.toggle('touch-mode', mode === 'auto' && isAutoTouch);
+    document.body.classList.toggle('force-touch', mode === 'on');
+    document.body.classList.toggle('no-touch', mode === 'off');
+  }
+  applyTouchMode();
+
+  // Dynamic fallback: if user touches the screen on any hybrid device, auto-enable touch controls & unlock audio
+  window.addEventListener('touchstart', () => {
+    G.Audio.ensure();
+    if (!isAutoTouch) {
+      isAutoTouch = true;
+      applyTouchMode();
+    }
+  }, { passive: true });
+
+  // Apply saved audio prefs
   G.Audio.setMuted(store.prefs.muted);
-  if (store.prefs.forceTouch) document.body.classList.add('force-touch');
 
   // ---------- Input (Keyboard + Touch + Gamepad) ----------
   const keyInput = { up: false, down: false, left: false, right: false, handbrake: false, boost: false };
@@ -122,29 +154,56 @@
     }
   });
 
+  const clearAllTouch = () => {
+    for (const k in touchInput) touchInput[k] = false;
+    document.querySelectorAll('.tbtn.active').forEach(el => el.classList.remove('active'));
+  };
+
   window.addEventListener('blur', () => {
     for (const k in keyInput) keyInput[k] = false;
-    for (const k in touchInput) touchInput[k] = false;
+    clearAllTouch();
   });
 
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      for (const k in keyInput) keyInput[k] = false;
+      clearAllTouch();
+    }
+  });
+
+  // Multi-touch safe pointer tracking per button (supports simultaneous steering + gas + boost)
   function bindTouch(id, key) {
     const el = document.getElementById(id);
     if (!el) return;
-    const on = (e) => {
+    const activeIds = new Set();
+
+    const sync = () => {
+      const down = activeIds.size > 0;
+      touchInput[key] = down;
+      el.classList.toggle('active', down);
+    };
+
+    el.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      touchInput[key] = true;
-      el.classList.add('active');
       G.Audio.ensure();
-    };
-    const off = (e) => {
+      activeIds.add(e.pointerId);
+      if (el.setPointerCapture) {
+        try { el.setPointerCapture(e.pointerId); } catch (_) {}
+      }
+      sync();
+    });
+
+    const release = (e) => {
+      if (!activeIds.has(e.pointerId)) return;
       e.preventDefault();
-      touchInput[key] = false;
-      el.classList.remove('active');
+      activeIds.delete(e.pointerId);
+      sync();
     };
-    el.addEventListener('pointerdown', on);
-    el.addEventListener('pointerup', off);
-    el.addEventListener('pointercancel', off);
-    el.addEventListener('pointerleave', off);
+
+    el.addEventListener('pointerup', release);
+    el.addEventListener('pointercancel', release);
+    el.addEventListener('lostpointercapture', release);
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
   }
   bindTouch('t-left', 'left');
   bindTouch('t-right', 'right');
@@ -201,7 +260,11 @@
     if (pSfx) pSfx.textContent = muted ? 'Sound Effects: OFF' : 'Sound Effects: ON';
     if (pRadio) pRadio.textContent = radio ? 'Synth Bus Radio: ON' : 'Synth Bus Radio: OFF';
     if (pCam) pCam.textContent = 'Camera: ' + (store.prefs.camMode === 'tight' ? 'Tight Chase' : 'Dynamic Zoom');
-    if (pTouch) pTouch.textContent = 'On-Screen Controls: ' + (store.prefs.forceTouch ? 'ON' : 'Auto');
+    if (pTouch) {
+      const tm = store.prefs.touchMode || (store.prefs.forceTouch ? 'on' : 'auto');
+      const label = tm === 'on' ? 'Always ON' : (tm === 'off' ? 'OFF' : (isAutoTouch ? 'Auto (Mobile)' : 'Auto (Desktop)'));
+      pTouch.textContent = 'On-Screen Controls: ' + label;
+    }
   }
 
   function toggleSfx() {
@@ -228,8 +291,11 @@
   }
 
   function toggleTouchUI() {
-    store.prefs.forceTouch = !store.prefs.forceTouch;
-    document.body.classList.toggle('force-touch', store.prefs.forceTouch);
+    const cur = store.prefs.touchMode || (store.prefs.forceTouch ? 'on' : 'auto');
+    const next = cur === 'auto' ? 'on' : (cur === 'on' ? 'off' : 'auto');
+    store.prefs.touchMode = next;
+    store.prefs.forceTouch = (next === 'on');
+    applyTouchMode();
     G.saveStore(store);
     syncToggleUI();
   }

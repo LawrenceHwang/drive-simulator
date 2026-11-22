@@ -1,4 +1,4 @@
-const CACHE_NAME = 'drive-sim-v8';
+const CACHE_NAME = 'drive-sim-v9';
 const ASSETS = [
   './',
   './index.html',
