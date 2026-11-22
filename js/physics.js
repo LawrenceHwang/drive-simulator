@@ -156,23 +156,28 @@
     sim.cam.shake = 0;
   }
 
-  function initHighway(sim) {
-    const startId = sim.track.def.id;
-    const allIds = G.TRACK_DEFS.map(t => t.id);
-    const startIdx = Math.max(0, allIds.indexOf(startId));
-    const biomeOrder = [];
-    for (let i = 0; i < allIds.length; i++) {
-      biomeOrder.push(G.TRACK_DEFS[(startIdx + i) % allIds.length]);
+  function getHighwayBiome(hw, segIdx) {
+    const idx = Math.max(0, segIdx);
+    while (hw.biomeSeq.length <= idx) {
+      const prev = hw.biomeSeq[hw.biomeSeq.length - 1];
+      const candidates = G.TRACK_DEFS.filter(t => !prev || t.id !== prev.id);
+      const pick = candidates[Math.floor(Math.random() * candidates.length)];
+      hw.biomeSeq.push(pick);
     }
+    return hw.biomeSeq[idx];
+  }
+
+  function initHighway(sim) {
+    const startBiome = G.TRACK_DEFS.find(t => t.id === sim.track.def.id) || G.TRACK_DEFS[0];
 
     const hw = {
       roadW: 198,
       laneYs: [-66, 0, 66],
-      biomeOrder,
+      biomeSeq: [startBiome],
       biomeKm: 2.5,
-      biomePos: 0,
-      biome: biomeOrder[0],
-      nextBiome: biomeOrder[1 % biomeOrder.length],
+      biomeSeg: 0,
+      biome: startBiome,
+      nextBiome: null,
       blend: 0,
       distanceKm: 0,
       bestKm: sim.store.bestHighwayKm || 0,
@@ -187,6 +192,7 @@
       signs: [],
       rand: G.mulberry32(sim.track.def.seed + 555),
     };
+    hw.nextBiome = getHighwayBiome(hw, 1);
     sim.highway = hw;
 
     // Pre-populate scenery ahead
@@ -217,8 +223,8 @@
 
   function highwayBiomeAtX(hw, x) {
     const km = Math.max(0, x / 5000);
-    const idx = Math.floor(km / hw.biomeKm) % hw.biomeOrder.length;
-    return hw.biomeOrder[idx];
+    const segIdx = Math.floor(km / hw.biomeKm);
+    return getHighwayBiome(hw, segIdx);
   }
 
   function streamHighwayScenery(sim, carX) {
@@ -329,25 +335,23 @@
 
     r.raceTime += dt;
 
-    // Smooth biome progression every 2.5 km with a 0.5 km crossfade zone
+    // Smooth random biome progression every 2.5 km with a long 1.0 km (40%) crossfade zone
     hw.distanceKm = Math.max(0, c.x / 5000);
     const segFloat = hw.distanceKm / hw.biomeKm;
     const segIdx = Math.floor(segFloat);
     const segFrac = segFloat - segIdx;
-    const targetBiomePos = segIdx % hw.biomeOrder.length;
-    const nextBiomePos = (segIdx + 1) % hw.biomeOrder.length;
 
-    if (targetBiomePos !== hw.biomePos) {
-      hw.biomePos = targetBiomePos;
-      hw.biome = hw.biomeOrder[hw.biomePos];
+    if (segIdx !== hw.biomeSeg) {
+      hw.biomeSeg = segIdx;
+      hw.biome = getHighwayBiome(hw, segIdx);
       showBanner(sim, hw.biome.name.toUpperCase(), hw.distanceKm.toFixed(1) + ' KM • SCENIC HIGHWAY', 2.0);
     }
-    hw.nextBiome = hw.biomeOrder[nextBiomePos];
+    hw.nextBiome = getHighwayBiome(hw, segIdx + 1);
 
-    // Crossfade smoothly over the final 22% (~0.55 km) of each biome stretch
-    if (segFrac > 0.78) {
-      const t = (segFrac - 0.78) / 0.22;
-      hw.blend = t * t * (3 - 2 * t); // smoothstep
+    // Crossfade smoothly over the final 40% (1.0 km) using quintic smootherstep
+    if (segFrac > 0.60) {
+      const t = (segFrac - 0.60) / 0.40;
+      hw.blend = t * t * t * (t * (t * 6 - 15) + 10);
     } else {
       hw.blend = 0;
     }
