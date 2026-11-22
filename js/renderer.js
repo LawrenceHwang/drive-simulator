@@ -435,21 +435,22 @@
     const speedNorm = Math.min(speedAbs / (sim.carDef.phys.maxSpeed * 1.12), 1.2);
     dt = Math.min(dt, 0.08) || 1 / 60;
 
-    // Smooth cinematic vertical highway camera: car sits in lower third, wide view ahead (UP)
-    const lookX = 95 + speedAbs * (camMode === 'tight' ? 0.11 : 0.18);
-    const targetX = c.x + lookX;
-    const targetY = c.y * 0.38;
-    const stiff = 24, damp = 2 * Math.sqrt(stiff);
-    cam.vx += ((targetX - cam.x) * stiff - cam.vx * damp) * dt;
-    cam.vy += ((targetY - cam.y) * stiff - cam.vy * damp) * dt;
-    cam.x += cam.vx * dt;
-    cam.y += cam.vy * dt;
-
-    const baseScale = camMode === 'tight' ? 1.44 : 1.26;
-    const targetScale = baseScale - Math.min(speedNorm, 1) * 0.32 - (c.boosting ? 0.05 : 0);
+    // Smooth zoom out at high speed so forward visibility expands as you go faster
+    const baseScale = camMode === 'tight' ? 1.36 : 1.22;
+    const targetScale = Math.max(0.74, baseScale - Math.min(speedNorm, 1.15) * 0.38 - (c.boosting ? 0.06 : 0));
     cam.scale += (targetScale - cam.scale) * Math.min(1, 3.2 * dt);
-
     const scale = cam.scale;
+
+    // Zero-lag forward tracking: keep car anchored in the lower quarter (~73% down screen)
+    // so ~73% of the screen is ALWAYS open highway ahead regardless of speed!
+    const desiredLookX = (H / scale) * (camMode === 'tight' ? 0.19 : 0.24);
+    if (cam.lookX == null) cam.lookX = desiredLookX;
+    cam.lookX += (desiredLookX - cam.lookX) * Math.min(1, 4.5 * dt);
+    cam.x = c.x + cam.lookX;
+
+    // Gentle lateral follow
+    const targetY = c.y * 0.35;
+    cam.y += (targetY - cam.y) * Math.min(1, 6.0 * dt);
     const shakeX = cam.shake > 0 ? (Math.random() - 0.5) * cam.shake * 14 : 0;
     const shakeY = cam.shake > 0 ? (Math.random() - 0.5) * cam.shake * 14 : 0;
 
