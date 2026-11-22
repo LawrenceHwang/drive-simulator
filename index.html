@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Top-Down Drive Simulator</title>
+  <link rel="icon" type="image/svg+xml" href="./icon.svg">
+  <link rel="stylesheet" href="./css/style.css">
+  <script>
+    if (location.protocol !== 'file:') {
+      const m = document.createElement('link');
+      m.rel = 'manifest';
+      m.href = './manifest.webmanifest';
+      document.head.appendChild(m);
+    }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- In-Game HUD -->
+  <div id="hud-layer" class="hud-layer hidden">
+    <div id="hud-left" class="glass-panel"></div>
+
+    <div id="hud-drift" class="glass-panel">
+      <div id="hud-drift-pts" class="drift-pts mono">0 × 1</div>
+      <div id="hud-drift-sub" class="drift-sub">DRIFT COMBO</div>
+    </div>
+
+    <div id="hud-right">
+      <div id="hud-toolbar">
+        <button id="btn-reset" class="icon-btn" title="Reset to Track (R)" aria-label="Reset to Track">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+        </button>
+        <button id="btn-cam" class="icon-btn" title="Toggle Camera (C)" aria-label="Toggle Camera">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        </button>
+        <button id="btn-radio" class="icon-btn" title="Toggle Synth Radio (N)" aria-label="Toggle Synth Radio">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        </button>
+        <button id="btn-sfx" class="icon-btn on" title="Toggle Sound (M)" aria-label="Toggle Sound">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+        </button>
+        <button id="btn-pause" class="icon-btn" title="Pause (Esc)" aria-label="Pause">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="8" y1="5" x2="8" y2="19"/><line x1="16" y1="5" x2="16" y2="19"/></svg>
+        </button>
+      </div>
+
+      <div id="hud-speed-card" class="glass-panel">
+        <div class="speed-top">
+          <div id="hud-gear" class="gear-badge mono">1</div>
+          <div>
+            <div id="hud-kmh" class="kmh-num mono">0</div>
+            <div class="kmh-unit">km/h</div>
+          </div>
+        </div>
+        <div class="meter-wrap">
+          <div class="meter-head"><span>RPM</span><span>SHIFT</span></div>
+          <div class="meter-track"><div id="rpm-fill" class="meter-fill"></div></div>
+        </div>
+        <div class="meter-wrap">
+          <div class="meter-head"><span>BOOST</span><span>SHIFT / B</span></div>
+          <div class="meter-track"><div id="boost-fill" class="meter-fill"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="hud-banner">
+      <div id="hud-banner-main"></div>
+      <div id="hud-banner-sub"></div>
+    </div>
+
+    <div id="minimap-wrap">
+      <canvas id="minimap" width="196" height="134"></canvas>
+    </div>
+  </div>
+
+  <!-- Garage / Main Menu -->
+  <div id="menu" class="overlay">
+    <div class="menu-card">
+      <div class="menu-header">
+        <div class="brand">
+          <h1>TOP-DOWN DRIVE</h1>
+          <p>Offline Arcade Driving Simulator</p>
+        </div>
+        <div class="menu-audio">
+          <button id="menu-sfx" type="button" class="pill-btn active">SFX: ON</button>
+          <button id="menu-radio" type="button" class="pill-btn">Radio: OFF</button>
+        </div>
+      </div>
+
+      <div class="section-title">Select Circuit</div>
+      <div id="track-grid" class="grid-4"></div>
+
+      <div class="section-title">Select Car</div>
+      <div id="car-grid" class="grid-4"></div>
+
+      <div class="section-title">Game Mode</div>
+      <div id="mode-grid" class="grid-4"></div>
+
+      <div class="menu-footer">
+        <div class="controls-hint">
+          <b>W A S D / Arrows</b> Drive &nbsp;•&nbsp;
+          <b>Space</b> Handbrake &nbsp;•&nbsp;
+          <b>Shift</b> Boost &nbsp;•&nbsp;
+          <b>R</b> Reset &nbsp;•&nbsp;
+          <b>Esc</b> Pause &nbsp;•&nbsp;
+          <b>N</b> Radio
+        </div>
+        <button id="btn-start" type="button" class="primary-btn">Start Drive</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pause Modal -->
+  <div id="pause-modal" class="overlay hidden">
+    <div class="menu-card modal-box">
+      <h2>PAUSED</h2>
+      <p class="modal-sub">Take a breather — your progress is held</p>
+      <div class="modal-actions">
+        <button id="p-resume" type="button" class="primary-btn">Resume</button>
+        <button id="p-restart" type="button" class="sec-btn">Restart Session</button>
+        <button id="p-sfx" type="button" class="sec-btn">Sound Effects: ON</button>
+        <button id="p-radio" type="button" class="sec-btn">Synth Bus Radio: OFF</button>
+        <button id="p-cam" type="button" class="sec-btn">Camera: Dynamic Zoom</button>
+        <button id="p-touch" type="button" class="sec-btn">On-Screen Controls: Auto</button>
+        <button id="p-menu" type="button" class="sec-btn">Back to Garage</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Drift Attack Finish Modal -->
+  <div id="finish-modal" class="overlay hidden">
+    <div class="menu-card modal-box">
+      <h2>SESSION COMPLETE</h2>
+      <p id="fin-track" class="modal-sub">Emerald Circuit</p>
+      <div id="fin-grade" class="finish-grade">S</div>
+      <div class="finish-stats">
+        <div class="finish-stat">
+          <div class="hud-label">Final Score</div>
+          <div id="fin-score" class="hud-val big mono">0</div>
+        </div>
+        <div class="finish-stat">
+          <div class="hud-label">Track Record</div>
+          <div id="fin-best" class="hud-val big mono">0</div>
+        </div>
+        <div class="finish-stat" style="grid-column: span 2;">
+          <div class="hud-label">Best Single Drift Combo</div>
+          <div id="fin-combo" class="hud-val mono">0</div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="f-again" type="button" class="primary-btn">Drive Again</button>
+        <button id="f-menu" type="button" class="sec-btn">Back to Garage</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Touch Controls -->
+  <div id="touch" class="hidden">
+    <div class="touch-cluster">
+      <div class="tbtn" id="t-left">◀</div>
+      <div class="tbtn" id="t-right">▶</div>
+    </div>
+    <div class="touch-cluster">
+      <div class="touch-col">
+        <div class="tbtn small" id="t-boost">⚡</div>
+        <div class="tbtn small" id="t-drift">◎</div>
+      </div>
+      <div class="tbtn" id="t-brake">▼</div>
+      <div class="tbtn" id="t-gas">▲</div>
+    </div>
+  </div>
+
+  <!-- Classic script tags with relative paths for both GitHub Pages subpaths and file:// -->
+  <script src="./js/data.js"></script>
+  <script src="./js/audio.js"></script>
+  <script src="./js/physics.js"></script>
+  <script src="./js/renderer.js"></script>
+  <script src="./js/main.js"></script>
+</body>
+</html>
