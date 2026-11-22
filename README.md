@@ -41,3 +41,7 @@ Open `index.html` directly in any browser (works over `file://` with no build st
 2. In your GitHub repository, go to **Settings → Pages**:
    - Under **Build and deployment → Source**, choose **GitHub Actions** (the included `.github/workflows/pages.yml` will deploy automatically on every push to `main`), **or** choose **Deploy from a branch** (`main` / `/ (root)`).
 3. Visit `https://<your-username>.github.io/<your-repo>/` once before going offline—the Service Worker caches all files automatically for offline play.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
