@@ -734,7 +734,7 @@ body.force-touch #minimap-wrap {
   .grid-5 {
     grid-template-columns: repeat(2, 1fr);
   }
-  .grid-5 .choice-card:last-child {
+  .grid-5 .choice-card:first-child {
     grid-column: span 2;
   }
   .controls-hint {

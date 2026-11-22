@@ -103,6 +103,11 @@
   // ---------- Modes ----------
   const MODES = [
     {
+      id: 'highway',
+      name: 'Highway Cruise',
+      desc: 'Endless straight scenic drive'
+    },
+    {
       id: 'timetrial',
       name: 'Time Trial',
       desc: 'Beat medals & your ghost'
@@ -121,11 +126,6 @@
       id: 'cruise',
       name: 'Free Cruise',
       desc: 'Chill circuit driving'
-    },
-    {
-      id: 'highway',
-      name: 'Highway Cruise',
-      desc: 'Endless straight scenic drive'
     }
   ];
 
@@ -623,7 +623,7 @@
     prefs: {
       trackId: 'emerald',
       carId: 'gt',
-      modeId: 'timetrial',
+      modeId: 'highway',
       muted: false,
       radio: false,
       camMode: 'dynamic', // dynamic | tight
