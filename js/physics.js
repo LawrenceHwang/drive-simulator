@@ -169,8 +169,11 @@
       roadW: 198,
       laneYs: [-66, 0, 66],
       biomeOrder,
+      biomeKm: 2.5,
       biomePos: 0,
       biome: biomeOrder[0],
+      nextBiome: biomeOrder[1 % biomeOrder.length],
+      blend: 0,
       distanceKm: 0,
       bestKm: sim.store.bestHighwayKm || 0,
       nextSaveKm: (sim.store.bestHighwayKm || 0) + 0.25,
@@ -212,16 +215,24 @@
     }
   }
 
+  function highwayBiomeAtX(hw, x) {
+    const km = Math.max(0, x / 5000);
+    const idx = Math.floor(km / hw.biomeKm) % hw.biomeOrder.length;
+    return hw.biomeOrder[idx];
+  }
+
   function streamHighwayScenery(sim, carX) {
     const hw = sim.highway;
     const rand = hw.rand;
     const halfW = hw.roadW / 2;
-    const bId = hw.biome.id;
 
-    // Stream ground patches & props ahead of car
+    // Stream ground patches & props ahead of car using the spatial biome at cx
     while (hw.nextChunkX < carX + 2100) {
       const cx = hw.nextChunkX;
       hw.nextChunkX += 160;
+      const bDef = highwayBiomeAtX(hw, cx);
+      const bId = bDef.id;
+      const bTh = bDef.theme;
 
       // Ground patches on both sides
       for (let s = -1; s <= 1; s += 2) {
@@ -232,7 +243,7 @@
             rx: 65 + rand() * 140,
             ry: 38 + rand() * 85,
             a: rand() * Math.PI,
-            dark: rand() > 0.48,
+            color: rand() > 0.48 ? bTh.patchDark : bTh.patchLight,
           });
         }
       }
@@ -281,11 +292,11 @@
       }
     }
 
-    // Streetlamps along highway
+    // Streetlamps along night-biome stretches
     while (hw.nextLampX < carX + 2100) {
       const lx = hw.nextLampX;
       hw.nextLampX += 280;
-      if (hw.biome.theme.night) {
+      if (highwayBiomeAtX(hw, lx).theme.night) {
         hw.lamps.push({ x: lx, y: -(halfW + 24) });
         hw.lamps.push({ x: lx + 140, y: halfW + 24 });
       }
@@ -295,7 +306,8 @@
     while (hw.nextSignX < carX + 2200) {
       const sx = hw.nextSignX;
       const km = (sx / 5000).toFixed(1);
-      hw.signs.push({ x: sx, label: hw.biome.name.toUpperCase() + '  •  ' + km + ' KM' });
+      const signBiome = highwayBiomeAtX(hw, sx);
+      hw.signs.push({ x: sx, label: signBiome.name.toUpperCase() + '  •  ' + km + ' KM' });
       hw.nextSignX += 2500;
     }
 
@@ -317,13 +329,27 @@
 
     r.raceTime += dt;
 
-    // Biome progression every 2.5 km
+    // Smooth biome progression every 2.5 km with a 0.5 km crossfade zone
     hw.distanceKm = Math.max(0, c.x / 5000);
-    const targetBiomePos = Math.floor(hw.distanceKm / 2.5) % hw.biomeOrder.length;
+    const segFloat = hw.distanceKm / hw.biomeKm;
+    const segIdx = Math.floor(segFloat);
+    const segFrac = segFloat - segIdx;
+    const targetBiomePos = segIdx % hw.biomeOrder.length;
+    const nextBiomePos = (segIdx + 1) % hw.biomeOrder.length;
+
     if (targetBiomePos !== hw.biomePos) {
       hw.biomePos = targetBiomePos;
       hw.biome = hw.biomeOrder[hw.biomePos];
       showBanner(sim, hw.biome.name.toUpperCase(), hw.distanceKm.toFixed(1) + ' KM • SCENIC HIGHWAY', 2.0);
+    }
+    hw.nextBiome = hw.biomeOrder[nextBiomePos];
+
+    // Crossfade smoothly over the final 22% (~0.55 km) of each biome stretch
+    if (segFrac > 0.78) {
+      const t = (segFrac - 0.78) / 0.22;
+      hw.blend = t * t * (3 - 2 * t); // smoothstep
+    } else {
+      hw.blend = 0;
     }
 
     // Persist highway distance record

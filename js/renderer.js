@@ -65,17 +65,18 @@
     const style = carDef.style || 'gt';
     const L = style === 'f1' ? 50 : (style === 'rally' ? 44 : 47);
     const Wd = style === 'f1' ? 22 : (style === 'rally' ? 25 : 24);
+    const nightAmt = typeof opts.night === 'number' ? opts.night : (opts.night ? 1 : 0);
 
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
     if (ghost) ctx.globalAlpha = 0.45;
 
-    // Headlight cones (bright on night track, subtle otherwise)
-    if (!ghost && night) {
+    // Headlight cones (bright on night track, smoothly faded during highway twilight)
+    if (!ghost && nightAmt > 0.02) {
       const grad = ctx.createRadialGradient(L * 0.45, 0, 4, L * 0.45 + 150, 0, 170);
-      grad.addColorStop(0, 'rgba(255,250,220,0.42)');
-      grad.addColorStop(0.55, 'rgba(220,240,255,0.14)');
+      grad.addColorStop(0, 'rgba(255,250,220,' + (0.42 * nightAmt) + ')');
+      grad.addColorStop(0.55, 'rgba(220,240,255,' + (0.14 * nightAmt) + ')');
       grad.addColorStop(1, 'rgba(220,240,255,0)');
       ctx.fillStyle = grad;
       ctx.beginPath();
@@ -226,13 +227,14 @@
 
   function drawTrafficCar(ctx, t, night) {
     const L = t.len, Wd = t.wid;
+    const nightAmt = typeof night === 'number' ? night : (night ? 1 : 0);
     ctx.save();
     ctx.translate(t.x, t.y);
     ctx.rotate(t.angle);
 
-    if (night) {
+    if (nightAmt > 0.02) {
       const grad = ctx.createRadialGradient(L * 0.45, 0, 2, L * 0.45 + 90, 0, 95);
-      grad.addColorStop(0, 'rgba(255,245,200,0.28)');
+      grad.addColorStop(0, 'rgba(255,245,200,' + (0.28 * nightAmt) + ')');
       grad.addColorStop(1, 'rgba(255,245,200,0)');
       ctx.fillStyle = grad;
       ctx.beginPath();
@@ -374,10 +376,57 @@
     }
   }
 
+  // Color parsing & interpolation for smooth highway biome transitions
+  const colorCache = {};
+  function parseColor(str) {
+    if (colorCache[str]) return colorCache[str];
+    let res = [0, 0, 0, 1];
+    if (str[0] === '#') {
+      const h = str.slice(1);
+      res = [
+        parseInt(h.slice(0, 2), 16),
+        parseInt(h.slice(2, 4), 16),
+        parseInt(h.slice(4, 6), 16),
+        1,
+      ];
+    } else {
+      const m = str.match(/[\d.]+/g);
+      if (m && m.length >= 3) {
+        res = [Number(m[0]), Number(m[1]), Number(m[2]), m[3] != null ? Number(m[3]) : 1];
+      }
+    }
+    colorCache[str] = res;
+    return res;
+  }
+
+  function lerpColor(a, b, t) {
+    if (t <= 0.001) return a;
+    if (t >= 0.999) return b;
+    const ca = parseColor(a), cb = parseColor(b);
+    const r = Math.round(ca[0] + (cb[0] - ca[0]) * t);
+    const g = Math.round(ca[1] + (cb[1] - ca[1]) * t);
+    const bl = Math.round(ca[2] + (cb[2] - ca[2]) * t);
+    const al = ca[3] + (cb[3] - ca[3]) * t;
+    return 'rgba(' + r + ',' + g + ',' + bl + ',' + al.toFixed(3) + ')';
+  }
+
   function renderHighway(ctx, mctx, sim, W, H, DPR, dt, camMode) {
     const hw = sim.highway;
     const bDef = hw.biome;
-    const th = bDef.theme;
+    const nDef = hw.nextBiome || bDef;
+    const blend = hw.blend || 0;
+    const thA = bDef.theme;
+    const thB = nDef.theme;
+
+    const bgCol = lerpColor(thA.bg, thB.bg, blend);
+    const shoulderCol = lerpColor(thA.shoulder, thB.shoulder, blend);
+    const asphaltCol = lerpColor(thA.asphalt, thB.asphalt, blend);
+    const edgeCol = lerpColor(thA.edgeLine, thB.edgeLine, blend);
+    const dashCol = lerpColor(thA.asphaltLine, thB.asphaltLine, blend);
+    const nightAmt = (thA.night ? 1 : 0) * (1 - blend) + (thB.night ? 1 : 0) * blend;
+    const rainAmt = (thA.weather === 'rain' ? 1 - blend : 0) + (thB.weather === 'rain' ? blend : 0);
+    const snowAmt = (thA.weather === 'snow' ? 1 - blend : 0) + (thB.weather === 'snow' ? blend : 0);
+
     const c = sim.car;
     const cam = sim.cam;
     const halfW = hw.roadW / 2;
@@ -405,7 +454,7 @@
     const shakeY = cam.shake > 0 ? (Math.random() - 0.5) * cam.shake * 14 : 0;
 
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    ctx.fillStyle = th.bg;
+    ctx.fillStyle = bgCol;
     ctx.fillRect(0, 0, W, H);
 
     ctx.save();
@@ -419,15 +468,21 @@
     const viewT = cam.y - vh / 2 - 140;
     const viewB = cam.y + vh / 2 + 140;
 
-    // Infinite tiled ground pattern
+    // Infinite tiled ground pattern with smooth crossfade into next biome
     ctx.fillStyle = getGroundPattern(ctx, bDef);
     ctx.fillRect(viewL, viewT, viewR - viewL, viewB - viewT);
+    if (blend > 0.005 && nDef !== bDef) {
+      ctx.globalAlpha = blend;
+      ctx.fillStyle = getGroundPattern(ctx, nDef);
+      ctx.fillRect(viewL, viewT, viewR - viewL, viewB - viewT);
+      ctx.globalAlpha = 1;
+    }
 
-    // Terrain patches
+    // Terrain patches (each patch retains its own region's shading)
     for (let i = 0; i < hw.patches.length; i++) {
       const p = hw.patches[i];
       if (p.x + p.rx < viewL || p.x - p.rx > viewR) continue;
-      ctx.fillStyle = p.dark ? th.patchDark : th.patchLight;
+      ctx.fillStyle = p.color || (p.dark ? thA.patchDark : thA.patchLight);
       ctx.beginPath();
       ctx.ellipse(p.x, p.y, p.rx, p.ry, p.a, 0, Math.PI * 2);
       ctx.fill();
@@ -456,7 +511,7 @@
     const roadLen = (viewR - viewL) + 80;
 
     // Paved shoulders & guardrail strips
-    ctx.fillStyle = th.shoulder;
+    ctx.fillStyle = shoulderCol;
     ctx.fillRect(roadX, -(halfW + 24), roadLen, hw.roadW + 48);
 
     // Subtle metallic guardrail lines
@@ -465,7 +520,7 @@
     ctx.fillRect(roadX, halfW + 18, roadLen, 4);
 
     // Asphalt surface
-    ctx.fillStyle = th.asphalt;
+    ctx.fillStyle = asphaltCol;
     ctx.fillRect(roadX, -halfW, roadLen, hw.roadW);
 
     // Subtle darker tire tracks in the 3 lanes
@@ -475,14 +530,14 @@
     }
 
     // Solid outer edge lines
-    ctx.fillStyle = th.edgeLine;
+    ctx.fillStyle = edgeCol;
     ctx.fillRect(roadX, -halfW + 4, roadLen, 3);
     ctx.fillRect(roadX, halfW - 7, roadLen, 3);
 
     // Dashed lane dividers (aligned to world x so they rush past smoothly)
     const dashStep = 72;
     const firstDash = Math.floor(viewL / dashStep) * dashStep;
-    ctx.fillStyle = th.asphaltLine;
+    ctx.fillStyle = dashCol;
     for (let dx = firstDash; dx < viewR; dx += dashStep) {
       ctx.fillRect(dx, -33 - 1.75, 34, 3.5);
       ctx.fillRect(dx,  33 - 1.75, 34, 3.5);
@@ -493,17 +548,18 @@
       const p = hw.props[i];
       const pad = p.r || Math.max(p.w || 40, p.h || 40);
       if (p.x + pad < viewL || p.x - pad > viewR || p.y + pad < viewT || p.y - pad > viewB) continue;
-      drawProp(ctx, p, th.night);
+      drawProp(ctx, p, nightAmt > 0.35);
     }
 
-    // Streetlamps in night biome
-    if (th.night && hw.lamps.length > 0) {
+    // Streetlamps (always draw any streamed night lamps ahead/around with smooth glow)
+    if (hw.lamps.length > 0) {
+      const lampGlow = Math.max(0.25, nightAmt);
       for (let i = 0; i < hw.lamps.length; i++) {
         const l = hw.lamps[i];
         if (l.x + 110 < viewL || l.x - 110 > viewR) continue;
         const grd = ctx.createRadialGradient(l.x, l.y, 2, l.x, l.y, 95);
-        grd.addColorStop(0, 'rgba(56,189,248,0.34)');
-        grd.addColorStop(0.5, 'rgba(232,121,249,0.11)');
+        grd.addColorStop(0, 'rgba(56,189,248,' + (0.34 * lampGlow) + ')');
+        grd.addColorStop(0.5, 'rgba(232,121,249,' + (0.11 * lampGlow) + ')');
         grd.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = grd;
         ctx.beginPath();
@@ -530,7 +586,7 @@
     for (let i = 0; i < sim.traffic.length; i++) {
       const t = sim.traffic[i];
       if (t.x + 80 < viewL || t.x - 80 > viewR) continue;
-      drawTrafficCar(ctx, t, th.night);
+      drawTrafficCar(ctx, t, nightAmt);
     }
 
     // Player car
@@ -538,7 +594,7 @@
       steer: c.steer,
       braking: c.brake > 0.15,
       boosting: c.boosting,
-      night: th.night,
+      night: nightAmt,
     });
 
     // Overhead highway milestone gantries
@@ -551,7 +607,6 @@
       ctx.fillRect(sg.x - 4, -(halfW + 18), 14, hw.roadW + 36);
       ctx.fillStyle = '#1e293b';
       ctx.fillRect(sg.x - 6, -(halfW + 20), 12, hw.roadW + 40);
-      // Green highway sign board
       ctx.fillStyle = '#065f46';
       ctx.fillRect(sg.x - 10, -82, 20, 164);
       ctx.strokeStyle = '#e2e8f0';
@@ -581,11 +636,12 @@
 
     ctx.restore();
 
-    // Screen-space weather (rain in Neon, snow in Alpine)
-    if (th.weather === 'rain' || th.weather === 'snow') {
-      const isRain = th.weather === 'rain';
-      ctx.strokeStyle = isRain ? 'rgba(186,230,253,0.28)' : 'rgba(255,255,255,0.65)';
-      ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    // Smoothly faded screen-space weather (rain / snow)
+    if (rainAmt > 0.02 || snowAmt > 0.02) {
+      const isRain = rainAmt >= snowAmt;
+      const wAmt = isRain ? rainAmt : snowAmt;
+      ctx.strokeStyle = 'rgba(186,230,253,' + (0.28 * wAmt) + ')';
+      ctx.fillStyle = 'rgba(255,255,255,' + (0.65 * wAmt) + ')';
       ctx.lineWidth = 1.4;
       for (let i = 0; i < weatherDrops.length; i++) {
         const d = weatherDrops[i];
@@ -613,7 +669,7 @@
         ? 'rgba(56,189,248,' + (0.24 * intensity) + ')'
         : 'rgba(255,255,255,' + (0.16 * intensity) + ')';
       ctx.lineWidth = c.boosting ? 2.4 : 1.8;
-      const cx = W / 2, cy = H / 2;
+      const cy = H / 2;
       for (let i = 0; i < count; i++) {
         const sy = Math.random() * H;
         if (Math.abs(sy - cy) < H * 0.18) continue;
@@ -626,8 +682,8 @@
       }
     }
 
-    // Vignette
-    const vigAlpha = th.night ? 0.5 : 0.3;
+    // Smooth vignette
+    const vigAlpha = 0.30 + nightAmt * 0.22;
     const vgrad = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.42, W / 2, H / 2, Math.max(W, H) * 0.78);
     vgrad.addColorStop(0, 'rgba(0,0,0,0)');
     vgrad.addColorStop(1, 'rgba(0,0,0,' + vigAlpha + ')');
@@ -635,22 +691,21 @@
     ctx.fillRect(0, 0, W, H);
 
     // Highway Radar Minimap
-    if (mctx) drawHighwayRadar(mctx, sim);
+    if (mctx) drawHighwayRadar(mctx, sim, lerpColor(thA.minimapBg, thB.minimapBg, blend), asphaltCol);
   }
 
-  function drawHighwayRadar(mctx, sim) {
+  function drawHighwayRadar(mctx, sim, bgCol, asphaltCol) {
     const hw = sim.highway;
-    const th = hw.biome.theme;
     const mw = mctx.canvas.width, mh = mctx.canvas.height;
 
     mctx.clearRect(0, 0, mw, mh);
-    mctx.fillStyle = th.minimapBg;
+    mctx.fillStyle = bgCol;
     mctx.fillRect(0, 0, mw, mh);
 
     // Draw horizontal 3-lane highway strip
     const stripH = 54;
     const sy = (mh - stripH) / 2;
-    mctx.fillStyle = th.asphalt;
+    mctx.fillStyle = asphaltCol;
     mctx.fillRect(0, sy, mw, stripH);
     mctx.strokeStyle = 'rgba(255,255,255,0.28)';
     mctx.lineWidth = 1;
